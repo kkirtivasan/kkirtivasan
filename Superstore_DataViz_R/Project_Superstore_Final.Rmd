@@ -1,0 +1,261 @@
+---
+title: "Project Superstore"
+author: "Group 1"
+date: "2023-06-01"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r IMPORTING LIBRARIES & LOADING DATA,message=FALSE,warning=FALSE}
+#install.packages("treemapify")
+#install.packages("waffle")
+#install.packages("plotly")
+
+# Loading all required libraries 
+library(tidyverse)
+library(lubridate)
+library(treemapify)
+library(waffle)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(magrittr)
+library(mapproj)
+library(maps)
+library(ggrepel)
+library(httr)
+library(readr)
+library(scales)
+library(plotly)
+
+# Loading Data from csv file 
+Store <- read.csv("Sample - Superstore.csv", header = TRUE)
+
+# Viewing the first 6 rows of the dataset 
+head(Store,5)
+
+```
+```{r Dataset Summary}
+# Dataset Dimension
+dim(Store)
+# Details of column types
+str(Store)
+# Select only the numeric columns
+numeric_cols <- Store[, sapply(Store, is.numeric)]
+# Dataset datatype Summary
+summary(numeric_cols)
+```
+```{r EXPLORATORY DATA ANALYSIS (EDA)}
+# Missing Values
+sapply(Store, function(x) sum(is.na(x)))
+
+# Maximum Sales in each State 
+state_max_sales <- Store %>% 
+  group_by(State) %>% 
+  summarise(Maximum_Sales = max(Sales),
+            .groups = "drop") %>% 
+  arrange(desc(Maximum_Sales))
+
+#top 5 states with max sales
+head(state_max_sales)
+
+```
+```{r EDA viz 1}
+
+# Total quantity of each category across different shipment modes
+mode_quantity <- Store %>% 
+  group_by(Ship.Mode, Category) %>%
+  summarize(Sum_of_Quantity = sum(Quantity),
+            .groups = 'drop')
+
+ggplot(mode_quantity, aes(fill = Category, y = Sum_of_Quantity, x = Ship.Mode)) + 
+  geom_bar(position = "dodge", stat = "identity", color = "black") + 
+  scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
+```
+```{r EDA viz 2}
+
+# Maximum Profit for different categires and sub-categories 
+max_profit <- Store %>% 
+  group_by(Category, Sub.Category) %>% 
+  summarize(Max_Profit = max(Profit),
+            .groups = "drop") 
+
+ggplot(max_profit, aes(fill = Category, y = Sub.Category, x = Max_Profit)) + 
+  geom_bar(position = "dodge", stat = "identity", color = "black") + 
+  scale_fill_brewer(palette="Set2")
+
+```
+```{r VISUALIZATION 1 : US States Sales}
+#Group by state to get the average of sales and profit
+agg_tbl <- Store %>% 
+  group_by(State) %>% 
+  summarise(across(c(Sales, Profit), mean)) %>%
+  rename (Mean_Sales = Sales) %>%
+  rename(Mean_Profit = Profit)
+
+agg_tbl <- agg_tbl %>%mutate(State = tolower((State)))
+
+#Top 2 states with high sales
+head(agg_tbl[order(-agg_tbl$Mean_Sales), ],2)
+
+states_map <- map_data("state")
+
+#Merge with State map to get the latitude and longitude to plot the graph
+sales_map <- merge(agg_tbl, states_map, by.x = "State", by.y = "region", all.x = TRUE)
+
+plot1 <- ggplot(sales_map, aes(x = long, y = lat, group = group, fill = Mean_Sales)) + 
+  geom_polygon(colour = "black") + 
+  coord_map("polyconic") + 
+  scale_fill_gradient2(low = "#B5D6D6", mid = "#5DA5A5", high = "#BB420B") +
+  theme_void() + 
+  theme(
+    text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+    ) + 
+  labs(title='US States Average Sales') + 
+  theme(plot.title=element_text(size=18, face='bold', hjust=0.5)) 
+
+plot1
+
+```
+```{r VISUALIZATION 2 : US states profits}
+#show top 2 highly profitable states
+head(agg_tbl[order(-agg_tbl$Mean_Profit), ],2)
+
+plot2 <- ggplot(sales_map, aes(x = long, y = lat, group = group, fill = Mean_Profit)) + 
+  geom_polygon(colour = "black") + 
+  coord_map("polyconic") + 
+  scale_fill_gradient2(low = "#B5D6D6", mid = "#5DA5A5", high = "#BB420B") +
+  theme_void() + 
+  theme(
+    text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+    ) + 
+  labs(title='US States Average Profits') + 
+  theme(plot.title=element_text(size=18, face='bold', hjust=0.5)) 
+
+plot2
+
+```
+```{r VISUALIZATION 3: Customers per Region}
+#group the store by Region
+Store_region <- Store %>%
+    group_by(Region) %>%
+    summarize(count=n())
+
+Store_region
+
+# Calculate proportions
+Store_region %<>% 
+    mutate(position=cumsum(Store_region$count)-(0.5*count),
+           percent=(count/sum(Store_region$count)*100)) %>%
+    # To be able to use position_stack in geom_text
+    as.data.frame()
+
+plot3<-Store_region %>%
+    ggplot(aes(x='', y=count, fill=Region))+
+    geom_bar(stat='identity', width=1)+
+    geom_text(aes(label=paste0(round(percent, 2), '%')), size=5, fontface='bold', color='white', position=position_stack(0.5))+
+    coord_polar(theta='y', start=0)+
+    labs(title='Distribution of Customers over different Region')+
+    theme_void()+
+    theme(plot.title=element_text(size=12, hjust=0.5, face='bold'))
+
+plot3
+```
+```{r VISUALIZATION 4 : Weekly Sales Data, West Coast}
+
+#filter by stores on west 
+Store_west <- Store %>% filter(Region == "West")  
+Store_west$Order.Date<-mdy(Store_west$Order.Date);
+Store_west$Day<-weekdays(Store_west$Order.Date);
+
+Day_agg <- Store_west %>%
+  group_by(Day) %>%
+  summarise(across(c(Sales, Profit), sum)) %>%
+  arrange(Day);
+
+week <- c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+
+plot4 <- ggplot(data = Day_agg, aes(x = factor(Day,level=week), y = Sales)) +
+         geom_bar(stat = "sum", fill = "dodgerblue") +
+         scale_y_continuous(labels = label_number_si()) +
+         labs(title = 'Best Sales Days in the West Coast',x = 'Day of the Week',y = 'Total Sales') +
+         theme_light()+
+         theme(plot.title=element_text(size=15, face='bold', hjust=0.5),axis.text.x=element_text(face='bold'),
+               legend.position = "none",panel.background = element_rect(fill = "#f5f5f2"),panel.grid = element_blank()) 
+
+plot4
+```
+
+```{r VISULAIZATION 5: Sales per Customer Segment and subcategory}
+
+plot5 <- Store %>%
+  group_by(`Segment`, `Sub.Category`) %>%
+  summarize("Total Payment"= sum(Sales)) %>%
+  ggplot(aes(x=Segment, y=`Sub.Category`, fill=`Total Payment`)) +
+  scale_fill_viridis_b(option = 'D') +
+  geom_tile(color='white') +
+  geom_text(aes(label=paste0(round(`Total Payment`, 2))), color='white', fontface='bold') +
+  labs(title='Sales per Customer Segment and Sub-Category') +
+  theme_classic() +
+  theme(plot.title=element_text(size=13, face='bold', hjust=0.5)) + 
+  scale_fill_gradient2(low = "#7bae9f", mid = "#6b76ad", high = "#8ce591")
+
+plot5
+
+```
+
+```{r VISULAIZATION 6: Top 5 category with high profit on the west coast}
+
+#group by sub category to find the profits made by stores on west
+West_profit <- Store_west %>%group_by(`Sub.Category`) %>%
+    summarize(product_profit=sum(Profit)) %>%
+    arrange(-`product_profit`)
+
+PlotData <- slice(West_profit, 1:5)[c('Sub.Category', 'product_profit')] %>%mutate(position=product_profit/2)
+
+PlotData$p_profit_formatted <- label_number_si()(PlotData$product_profit)
+PlotData
+
+plot6<-PlotData %>%
+    ggplot(aes(x=reorder(Sub.Category, -product_profit), y=product_profit, fill=Sub.Category, order_by=product_profit))+
+    geom_bar(stat='identity')+
+    scale_y_continuous(labels = label_number_si()) +
+    geom_text(aes(y=position, label=p_profit_formatted), color='white')+
+    coord_polar()+
+    labs(title='Top 5 category with high profit on the west coast',x='Product Category', y='Product Profits')+
+    theme_light()+
+    theme(plot.title=element_text(size=13, face='bold', hjust=0.5),
+          axis.text.x=element_text(face='bold'))
+
+plot6
+```
+
+```{r VISULAIZATION 7: overall trend, echo=FALSE}
+
+#Check the trend between profit and discount
+plot7<-ggplot(data=Store,aes(y=Discount,x=Profit)) + 
+       geom_point(alpha=0.5,color="steelblue") +  
+       geom_smooth(span=1,color="darkgreen",fill="lightgrey",alpha=0.7) + 
+       labs(title='Trend between discount provided and profits made',x='Profit', y='Discount')+ theme_light()+
+         theme(plot.title=element_text(size=13, face='bold', hjust=0.5),axis.text.x=element_text(face='bold'),
+               legend.position = "none",panel.background = element_rect(fill = "#f5f5f2"))
+plot7
+```
+
+
+
+
+
+
